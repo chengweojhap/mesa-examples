@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>全球影像服务地图</title>
+    
+    <link rel="stylesheet" href="https://js.arcgis.com/4.29/esri/themes/dark/main.css">
+    <script src="https://js.arcgis.com/4.29/"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Microsoft YaHei', Arial, sans-serif;
+        }
+
+        body {
+            background-color: #1a202c;
+            color: #e2e8f0;
+            overflow: hidden;
+        }
+
+        #loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(26, 32, 44, 0.95);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            z-index: 9999;
+        }
+        .loader {
+            width: 50px;
+            height: 50px;
+            border: 5px solid #2d3748;
+            border-top: 5px solid #3182ce;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        #loading p {
+            font-size: 16px;
+            color: #3182ce;
+            font-weight: 500;
+        }
+
+        .header {
+            height: 64px;
+            background: linear-gradient(135deg, #1a365d 0%, #2a4365 100%);
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            padding: 0 30px;
+            font-size: 20px;
+            font-weight: 500;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            z-index: 10;
+        }
+
+        .header span {
+            margin-right: 12px;
+            font-size: 24px;
+        }
+
+        .main-container {
+            display: flex;
+            height: calc(100vh - 64px);
+        }
+
+        .control-panel {
+            width: 320px;
+            background: #2d3748;
+            border-right: 1px solid #4a5568;
+            display: flex;
+            flex-direction: column;
+            z-index: 5;
+            box-shadow: 2px 0 10px rgba(0, 0, 0, 0.2);
+        }
+
+        .panel-section {
+            padding: 20px;
+            border-bottom: 1px solid #4a5568;
+        }
+
+        .panel-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #e2e8f0;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+        }
+
+        .panel-title::before {
+            content: '';
+            display: inline-block;
+            width: 4px;
+            height: 16px;
+            background-color: #3182ce;
+            margin-right: 10px;
+        }
+
+        .btn {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            background: #4299e1;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+        
+        .btn:hover {
+            background: #3182ce;
+        }
+
+        #mapView {
+            flex: 1;
+            position: relative;
+        }
+    </style>
+</head>
+<body>
+    <div id="loading">
+        <div class="loader"></div>
+        <p>地图加载中，请稍候...</p>
+    </div>
+
+    <div class="header">
+        <span>🗺️</span>
+        <div>全球影像服务地图</div>
+    </div>
+
+    <div class="main-container">
+        <div class="control-panel">
+            <div class="panel-section">
+                <div class="panel-title">底图主题切换（全部免费）</div>
+                <button id="btnOSM" class="btn">OpenStreetMap标准底图</button>
+                <button id="btnGeoQDark" class="btn">GeoQ深色主题底图（推荐）</button>
+                <button id="btnAmap" class="btn">高德地图矢量底图</button>
+                <button id="btnArcGIS" class="btn">ArcGIS影像底图</button>
+            </div>
+            <div class="panel-section">
+                <div class="panel-title">功能说明</div>
+                <p style="font-size: 14px; line-height: 1.6;">
+                    本地图使用完全免费的公开地图服务，无需申请密钥，直接使用。<br>
+                    支持多底图自由切换，提供全球影像、矢量地图浏览功能。
+                </p>
+            </div>
+        </div>
+        <div id="mapView"></div>
+    </div>
+
+    <script>
+        require([
+            "esri/Map",
+            "esri/views/MapView",
+            "esri/layers/WebTileLayer",
+            "esri/widgets/Search",
+            "esri/widgets/LayerList",
+            "esri/widgets/Legend",
+            "esri/widgets/ScaleBar",
+            "esri/widgets/Expand"
+        ], function(
+            Map,
+            MapView,
+            WebTileLayer,
+            Search,
+            LayerList,
+            Legend,
+            ScaleBar,
+            Expand
+        ) {
+            // 4种完全免费、无需密钥的底图
+            const osmLayer = new WebTileLayer({
+                urlTemplate: "https://{s}.tile.openstreetmap.org/{level}/{col}/{row}.png",
+                subDomains: ["a", "b", "c"],
+                title: "OpenStreetMap标准底图"
+            });
+
+            const geoqDarkLayer = new WebTileLayer({
+                urlTemplate: "https://map.geoq.cn/arcgis/rest/services/ChinaOnlineStreetPurplishBlue/MapServer/tile/{level}/{row}/{col}",
+                title: "GeoQ深色主题底图"
+            });
+
+            const amapLayer = new WebTileLayer({
+                urlTemplate: "https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={col}&y={row}&z={level}",
+                subDomains: ["1", "2", "3", "4"],
+                title: "高德地图矢量底图"
+            });
+
+            const arcgisImageLayer = new WebTileLayer({
+                urlTemplate: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{level}/{row}/{col}",
+                title: "ArcGIS影像底图"
+            });
+
+            // 初始化地图
+            const map = new Map({
+                layers: [geoqDarkLayer]
+            });
+
+            // 初始视角：大西洋中部，无中国居中
+            const view = new MapView({
+                container: "mapView",
+                map: map,
+                center: [-30, 20],
+                zoom: 2,
+                constraints: {
+                    minZoom: 1,
+                    maxZoom: 18
+                }
+            });
+
+            // 地图加载完成后隐藏加载提示
+            view.when(() => {
+                document.getElementById("loading").style.display = "none";
+            }).catch(err => {
+                console.error("地图加载失败：", err);
+                document.getElementById("loading").innerHTML = "<p style='color: #e53e3e'>地图加载失败，请刷新重试</p>";
+            });
+
+            // 功能控件
+            const searchWidget = new Search({
+                view: view,
+                placeholder: "搜索全球地点..."
+            });
+            
+            const layerListExpand = new Expand({
+                expandIcon: "layers",
+                expandTooltip: "图层列表",
+                view: view,
+                content: new LayerList({ view: view })
+            });
+
+            const legendExpand = new Expand({
+                expandIcon: "legend",
+                expandTooltip: "图例",
+                view: view,
+                content: new Legend({ view: view })
+            });
+
+            const scaleBar = new ScaleBar({
+                view: view,
+                unit: "metric"
+            });
+
+            view.ui.add(searchWidget, "top-right");
+            view.ui.add(layerListExpand, "top-right");
+            view.ui.add(legendExpand, "top-right");
+            view.ui.add(scaleBar, "bottom-left");
+
+            // 底图切换功能（移除点位图层）
+            document.getElementById("btnOSM").addEventListener("click", () => {
+                map.removeAll();
+                map.add(osmLayer);
+            });
+
+            document.getElementById("btnGeoQDark").addEventListener("click", () => {
+                map.removeAll();
+                map.add(geoqDarkLayer);
+            });
+
+            document.getElementById("btnAmap").addEventListener("click", () => {
+                map.removeAll();
+                map.add(amapLayer);
+            });
+
+            document.getElementById("btnArcGIS").addEventListener("click", () => {
+                map.removeAll();
+                map.add(arcgisImageLayer);
+            });
+        });
+    </script>
+</body>
+</html>
